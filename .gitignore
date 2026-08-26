@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Vault secrets and data
+.env
+vault/data/
+key/
+vault-token.txt
+*.token

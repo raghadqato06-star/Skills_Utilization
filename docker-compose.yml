@@ -1,0 +1,48 @@
+services:
+
+  postgres:
+    image: postgres:15
+    container_name: skills-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: course_recommendation_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - skills-network
+
+  backend:
+    build: .
+    container_name: skills-backend
+    env_file:
+      - .env
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+    networks:
+      - skills-network
+
+  vault:
+    image: hashicorp/vault:latest
+    container_name: skills-vault
+    cap_add:
+      - IPC_LOCK
+    command: vault server -config=/vault/config/vault.hcl
+    ports:
+      - "8200:8200"
+    volumes:
+      - ./vault/data:/vault/data
+      - ./vault/config:/vault/config
+    networks:
+      - skills-network
+
+volumes:
+  postgres_data:
+
+networks:
+  skills-network:
+    driver: bridge
