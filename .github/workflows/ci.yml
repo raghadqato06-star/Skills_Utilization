@@ -28,6 +28,21 @@ jobs:
       - name: Start services
         run: docker compose up -d
 
+      - name: Wait for backend
+        run: |
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:5000 > /dev/null; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            echo "Waiting for backend..."
+            sleep 2
+          done
+          echo "Backend did not become ready"
+          docker compose ps
+          docker compose logs --tail=100
+          exit 1
+
       - name: Check services
         run: docker compose ps
 
