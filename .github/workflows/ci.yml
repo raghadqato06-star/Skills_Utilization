@@ -25,9 +25,16 @@ jobs:
       - name: Build Docker images
         run: docker compose build
 
+      - name: Create .env
+        run: |
+          cat > .env <<EOF
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
+          SECRET_KEY=${{ secrets.SECRET_KEY }}
+          EOF
+
       - name: Start services
         run: docker compose up -d
-
       - name: Wait for backend
         run: |
           for i in {1..30}; do
