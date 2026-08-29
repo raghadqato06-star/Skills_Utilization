@@ -1,4 +1,4 @@
-name: CI/CD
+name: Secure CI/CD
 
 on:
   push:
@@ -8,9 +8,40 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+env:
+  COMPOSE_PROJECT_NAME: skills_utilization
+
 jobs:
-  test:
-    name: CI - Build and Test
+
+  security:
+    name: Security Scans
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check repository for secrets
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install pip-audit
+        run: |
+          python3 -m pip install --user pip-audit
+
+      - name: Audit Python dependencies
+        run: |
+          python3 -m pip_audit -r requirements.txt
+
+  build-and-test:
+    name: Build and Test
+    needs: security
     runs-on: self-hosted
 
     steps:
@@ -23,49 +54,143 @@ jobs:
       - name: Check Docker Compose
         run: docker compose version
 
+      - name: Verify required files
+        run: |
+          test -f Dockerfile
+          test -f docker-compose.yml
+          test -f vault.sh
+          test -f vault/config/vault.hcl
+          test -f requirements.txt
+
       - name: Start Vault and PostgreSQL
-        run: docker compose up -d vault postgres
+        run: |
+          docker compose up -d vault postgres
 
-      - name: Get secrets from Vault
+      - name: Wait for Vault
         env:
-          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
-        run: ./vault.sh
-
-      - name: Build Docker images
-        run: docker compose build
-
-      - name: Start services
-        run: docker compose up -d
-
-      - name: Wait for backend
+          VAULT_ADDR: http://127.0.0.1:8200
         run: |
           for i in {1..30}; do
-            if curl -fs http://127.0.0.1:5000 > /dev/null; then
-              echo "Backend is ready"
+            if vault status >/tmp/vault-status 2>&1; then
+              break
+            fi
+
+            echo "Waiting for Vault..."
+            sleep 2
+          done
+
+          cat /tmp/vault-status
+
+      - name: Check Vault is unsealed
+        env:
+          VAULT_ADDR: http://127.0.0.1:8200
+        run: |
+          if ! vault status 2>&1 | grep -q "Sealed.*false"; then
+            echo "ERROR: Vault must be initialized and unsealed."
+            exit 1
+          fi
+
+          echo "Vault is initialized and unsealed."
+
+      - name: Authenticate with Vault
+        env:
+          VAULT_ADDR: http://127.0.0.1:8200
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+        run: |
+          test -n "$VAULT_TOKEN"
+          vault token lookup >/dev/null
+          echo "Vault authentication successful."
+
+      - name: Retrieve secrets from Vault
+        env:
+          VAULT_ADDR: http://127.0.0.1:8200
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+        run: |
+          ./vault.sh
+
+      - name: Validate environment without exposing secrets
+        run: |
+          test -s .env
+
+          for key in \
+            DATABASE_URL \
+            JWT_SECRET_KEY \
+            SECRET_KEY \
+            POSTGRES_USER \
+            POSTGRES_PASSWORD \
+            POSTGRES_DB
+          do
+            grep -q "^${key}=" .env
+          done
+
+          chmod 600 .env
+
+      - name: Build backend image
+        run: |
+          docker compose build --no-cache backend
+
+      - name: Verify backend runs as non-root
+        run: |
+          USER_ID=$(docker image inspect \
+            skills_utilization-backend:latest \
+            --format '{{.Config.User}}')
+
+          echo "Docker user: ${USER_ID}"
+
+          test "${USER_ID}" = "appuser"
+
+      - name: Scan Docker image with Trivy
+        run: |
+          if ! command -v trivy >/dev/null 2>&1; then
+            echo "ERROR: Trivy is not installed on the self-hosted runner."
+            exit 1
+          fi
+
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            skills_utilization-backend:latest
+
+      - name: Start backend
+        run: |
+          docker compose up -d backend
+
+      - name: Wait for backend health
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:5000 > /dev/null; then
+              echo "Backend is healthy."
               exit 0
             fi
+
             echo "Waiting for backend..."
             sleep 2
           done
 
-          echo "Backend did not become ready"
+          echo "Backend failed health check."
+
           docker compose ps
-          docker compose logs --tail=100
+          docker compose logs --tail=100 backend
+
           exit 1
 
-      - name: Check services
+      - name: Test backend
+        run: |
+          curl -fsS http://127.0.0.1:5000 > /dev/null
+
+      - name: Show service status
+        if: always()
         run: docker compose ps
 
-      - name: Test backend
-        run: curl -f http://127.0.0.1:5000
-
-      - name: Stop test application
+      - name: Cleanup test containers
         if: always()
-        run: docker compose stop backend postgres
+        run: |
+          docker compose stop backend postgres || true
 
   deploy:
-    name: CD - Deploy Application
-    needs: test
+    name: Deploy to Self-Hosted Runner
+    needs: build-and-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: self-hosted
 
@@ -73,34 +198,56 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Start Vault and PostgreSQL
-        run: docker compose up -d vault postgres
-
-      - name: Get secrets from Vault
+      - name: Verify Vault
         env:
+          VAULT_ADDR: http://127.0.0.1:8200
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+        run: |
+          if ! vault status 2>&1 | grep -q "Sealed.*false"; then
+            echo "ERROR: Vault is sealed."
+            exit 1
+          fi
+
+          vault token lookup >/dev/null
+
+      - name: Retrieve production secrets from Vault
+        env:
+          VAULT_ADDR: http://127.0.0.1:8200
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
         run: ./vault.sh
 
-      - name: Deploy with Docker Compose
+      - name: Deploy application
         run: |
-          docker compose build
-          docker compose up -d
+          docker compose up -d --build
 
-      - name: Verify deployment
+      - name: Wait for deployment
         run: |
           for i in {1..30}; do
             if curl -fs http://127.0.0.1:5000 > /dev/null; then
               echo "Deployment successful"
               exit 0
             fi
+
             echo "Waiting for deployment..."
             sleep 2
           done
 
-          echo "Deployment failed"
+          echo "Deployment failed."
+
           docker compose ps
           docker compose logs --tail=100
+
           exit 1
 
-      - name: Show deployed services
+      - name: Verify deployed container is non-root
+        run: |
+          USER_ID=$(docker inspect \
+            skills-backend \
+            --format '{{.Config.User}}')
+
+          echo "Runtime user: ${USER_ID}"
+
+          test "${USER_ID}" = "appuser"
+
+      - name: Final deployment status
         run: docker compose ps
