@@ -28,8 +28,3 @@ chmod 600 "$ENV_FILE"
 
 echo "Secrets successfully saved to $ENV_FILE"
 
-echo "Starting Docker Compose..."
-
-docker compose up -d --build
-
-echo "Done."
