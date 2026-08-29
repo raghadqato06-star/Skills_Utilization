@@ -33,11 +33,13 @@ jobs:
 
       - name: Install pip-audit
         run: |
-          python3 -m pip install --user pip-audit
+          python3 -m venv .ci-venv
+          .ci-venv/bin/python -m pip install --upgrade pip
+          .ci-venv/bin/python -m pip install pip-audit
 
       - name: Audit Python dependencies
         run: |
-          python3 -m pip_audit -r requirements.txt
+          .ci-venv/bin/pip-audit -r requirements.txt
 
   build-and-test:
     name: Build and Test

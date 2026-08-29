@@ -224,3 +224,4 @@ key/
 vault-token.txt
 *.token
 actions-runner/
+.ci-venv/
