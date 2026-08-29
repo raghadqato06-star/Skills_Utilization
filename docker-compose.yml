@@ -27,7 +27,7 @@ services:
       - skills-network
 
   vault:
-    image: hashicorp/vault:latest
+    image: hashicorp/vault:1.17.6
     container_name: skills-vault
     cap_add:
       - IPC_LOCK
@@ -39,7 +39,6 @@ services:
       - ./vault/config:/vault/config
     networks:
       - skills-network
-
 volumes:
   postgres_data:
 
