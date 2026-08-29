@@ -170,7 +170,7 @@ jobs:
             sleep 2
           done
 
-          echo "Backend failed health check."
+          echo "Backend failed to start."
 
           docker compose ps
           docker compose logs --tail=100 backend
@@ -183,7 +183,8 @@ jobs:
 
       - name: Show service status
         if: always()
-        run: docker compose ps
+        run: |
+          docker compose ps
 
       - name: Cleanup test containers
         if: always()
@@ -216,7 +217,8 @@ jobs:
         env:
           VAULT_ADDR: http://127.0.0.1:8200
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
-        run: ./vault.sh
+        run: |
+          ./vault.sh
 
       - name: Deploy application
         run: |
@@ -225,8 +227,8 @@ jobs:
       - name: Wait for deployment
         run: |
           for i in {1..30}; do
-            if curl -fs http://127.0.0.1:5000 > /dev/null; then
-              echo "Deployment successful"
+            if curl -fsS http://127.0.0.1:5000 > /dev/null; then
+              echo "Deployment successful."
               exit 0
             fi
 
@@ -252,4 +254,5 @@ jobs:
           test "${USER_ID}" = "appuser"
 
       - name: Final deployment status
-        run: docker compose ps
+        run: |
+          docker compose ps
