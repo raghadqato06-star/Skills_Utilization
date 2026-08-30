@@ -1,0 +1,96 @@
+name: SkillMatch CI/CD
+
+on:
+push:
+branches:
+- main
+
+pull_request:
+branches:
+- main
+
+permissions:
+contents: read
+packages: write
+
+jobs:
+
+security-checks:
+name: Security Checks
+runs-on: ubuntu-latest
+
+steps:
+- name: Checkout
+uses: actions/checkout@v4
+
+# Check for accidentally committed secrets
+- name: Gitleaks Secret Scan
+uses: gitleaks/gitleaks-action@v2
+env:
+GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# Check that Docker is available
+- name: Check Docker
+run: docker --version
+
+# Check Docker Compose
+- name: Check Docker Compose
+run: docker compose version
+
+# Validate compose file
+- name: Validate Docker Compose
+run: docker compose config
+
+# Build backend image
+- name: Build Backend Image
+run: |
+docker build \
+-t ghcr.io/${{ github.repository_owner }}/project3-backend:${{ github.sha }} \
+-t ghcr.io/${{ github.repository_owner }}/project3-backend:latest \
+./backend
+
+
+publish-image:
+name: Publish Backend Image to GHCR
+runs-on: ubuntu-latest
+needs: security-checks
+
+# Only publish from main
+if: github.ref == 'refs/heads/main'
+
+permissions:
+contents: read
+packages: write
+
+steps:
+- name: Checkout
+uses: actions/checkout@v4
+
+- name: Log in to GHCR
+uses: docker/login-action@v3
+with:
+registry: ghcr.io
+username: ${{ github.actor }}
+password: ${{ secrets.GITHUB_TOKEN }}
+
+- name: Build and Push Backend Image
+uses: docker/build-push-action@v6
+with:
+context: ./backend
+push: true
+tags: |
+ghcr.io/${{ github.repository_owner }}/project3-backend:latest
+ghcr.io/${{ github.repository_owner }}/project3-backend:${{ github.sha }}
+
+
+deploy:
+name: Deploy
+runs-on: ubuntu-latest
+needs: publish-image
+
+steps:
+- name: Deployment Complete
+run: |
+echo "Backend image successfully published to GHCR."
+echo "Image:"
+echo "ghcr.io/${{ github.repository_owner }}/project3-backend:latest"
