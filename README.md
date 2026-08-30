@@ -15,7 +15,7 @@
 - **Backend:** Python 3, Flask REST API
 - **Database:** PostgreSQL
 - **ORM & Migrations:** SQLAlchemy Core, Alembic
-- **Security:** PyJWT for token-based authentication, Werkzeug/Bcrypt for password hashing.
+- **Security:** PyJWT for token-based authentication, Werkzeug/Bcrypt for password hashing. # gitleaks:allow
 - **Frontend:** HTML, CSS, JavaScript (served via Flask templates/static folders).
 
 ## Project Structure
