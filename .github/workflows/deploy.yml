@@ -37,10 +37,19 @@ jobs:
       - name: Check Docker Compose
         run: docker compose version
 
-      # Validate compose file
+      # Validate Docker Compose
       - name: Validate Docker Compose
-        run: docker compose config
+        run: |
+          cat > .env <<'EOF'
+          DATABASE_URL=postgresql://ci_user:ci_password@postgres:5432/ci_db
+          JWT_SECRET_KEY=ci_jwt_secret
+          POSTGRES_DB=ci_db
+          POSTGRES_PASSWORD=ci_password
+          POSTGRES_USER=ci_user
+          SECRET_KEY=ci_secret_key
+          EOF
 
+          docker compose config
       # Build backend image
       - name: Build Backend Image
         run: |
