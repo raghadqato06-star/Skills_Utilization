@@ -92,12 +92,19 @@ jobs:
 
   deploy:
     name: Deploy
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: publish-image
 
     steps:
-      - name: Deployment Complete
+      - name: Deploy application
         run: |
-          echo "Backend image successfully published to GHCR."
-          echo "Image:"
-          echo "ghcr.io/${{ github.repository_owner }}/project3-backend:latest"
+          cd /home/aau/Desktop/Skills_Utilization
+
+          echo "Pulling latest backend image..."
+          docker pull ghcr.io/${{ github.repository_owner }}/project3-backend:latest
+
+          echo "Starting application..."
+          docker compose up -d
+
+          echo "Running containers:"
+          docker ps
